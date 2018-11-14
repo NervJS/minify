@@ -872,6 +872,8 @@ module.exports = ({ types: t, traverse }) => {
           const isPure = test.isPure();
 
           const replacements = [];
+          const renderFunction = path.findParent(p => p.isClassMethod() && t.isIdentifier(p.node.key) && p.node.key.name.startsWith('render'))
+          const isRenderFunction = renderFunction && renderFunction.isClassMethod() && containJSXElement(renderFunction);
           if (evalResult.confident && !isPure && test.isSequenceExpression()) {
             replacements.push(
               t.expressionStatement(extractSequenceImpure(test))
@@ -887,7 +889,7 @@ module.exports = ({ types: t, traverse }) => {
           if (evalResult.confident && evalResult.value) {
             path.replaceWithMultiple([
               ...replacements,
-              ...toStatements(consequent),
+              ...toStatements(consequent, isRenderFunction),
               ...extractVars(alternate)
             ]);
             return;
@@ -903,7 +905,7 @@ module.exports = ({ types: t, traverse }) => {
             if (alternate.node) {
               path.replaceWithMultiple([
                 ...replacements,
-                ...toStatements(alternate),
+                ...toStatements(alternate, isRenderFunction),
                 ...extractVars(consequent)
               ]);
               return;
@@ -984,19 +986,31 @@ module.exports = ({ types: t, traverse }) => {
     }
   };
 
-  function toStatements(path) {
+  function containJSXElement (path) {
+    let matched = false
+    path.traverse({
+      JSXElement (p) {
+        matched = true
+        p.stop()
+      }
+    })
+    return matched
+  }
+
+  function toStatements(path, isRenderFunction) {
     const { node } = path;
     if (path.isBlockStatement()) {
+      if (isRenderFunction) {
+        return node.body
+      }
       let hasBlockScoped = false;
-
-      for (let i = 0; i < node.body.length; i++) {
+       for (let i = 0; i < node.body.length; i++) {
         const bodyNode = node.body[i];
         if (t.isBlockScoped(bodyNode)) {
           hasBlockScoped = true;
         }
       }
-
-      if (!hasBlockScoped) {
+       if (!hasBlockScoped) {
         return node.body;
       }
     }
